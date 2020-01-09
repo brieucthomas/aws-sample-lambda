@@ -1,0 +1,83 @@
+service: aws-sample
+
+frameworkVersion: ">=1.2.0 <2.0.0"
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: non-linux
+
+provider:
+  name: aws
+  runtime: python3.7
+  environment:
+    CODEBUILD_ROLE_ARN: ${env:CODEBUILD_ROLE_ARN}
+  stage: test
+  region: ${env:AWS_REGION}
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - iam:PassRole
+        - codebuild:CreateProject
+        - codebuild:DeleteProject
+        - codebuild:StartBuild
+        - codecommit:GetFile
+        - codecommit:PostCommentForPullRequest
+      Resource:
+        - "*"
+
+functions:
+  PullRequestChanged:
+    handler: ./pull-request-changed.lambda_handler
+    description: Triggers CodeBuild on PR's in CodeCommit.
+    memorySize: 128
+    timeout: 10
+    events:
+      - cloudwatchEvent:
+          event:
+            source:
+              - aws.codecommit
+            detail-type:
+              - CodeCommit Pull Request State Change
+            detail:
+              event:
+                - pullRequestCreated
+                - pullRequestSourceBranchUpdated
+
+  PullRequestClosed:
+    handler: ./pull-request-closed.lambda_handler
+    description: Triggers CodeBuild on PR's in CodeCommit.
+    memorySize: 128
+    timeout: 10
+    events:
+      - cloudwatchEvent:
+          event:
+            source:
+              - aws.codecommit
+            detail-type:
+              - CodeCommit Pull Request State Change
+            detail:
+              event:
+                - pullRequestStatusChanged
+                - pullRequestMergeStatusUpdated
+              pullRequestStatus:
+                - Closed
+
+  ReportBuildStatus:
+    handler: ./report-build-status.lambda_handler
+    description: Triggers And updates CodeCommit with information from PR's
+    memorySize: 128
+    timeout: 10
+    events:
+      - cloudwatchEvent:
+          event:
+            source:
+              - aws.codebuild
+            detail-type:
+              - CodeBuild Build State Change
+            detail:
+              build-status:
+                - FAILED
+                - SUCCEEDED

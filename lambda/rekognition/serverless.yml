@@ -1,0 +1,72 @@
+service: sample
+
+frameworkVersion: '>=1.2.0 <2.0.0'
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: non-linux
+
+provider:
+  name: aws
+  runtime: python3.7
+  environment:
+    S3_BUCKET: ${env:S3_BUCKET}
+    DYNAMODB_TABLE: ${env:DYNAMODB_TABLE}
+  stage: ${env:STAGE}
+  region: ${env:AWS_REGION}
+  iamRoleStatements:
+    -
+      Effect: Allow
+      Action:
+        - rekognition:DetectText
+        - rekognition:DetectLabels
+        - comprehend:DetectEntities
+        - comprehendmedical:DetectPHI
+      Resource: "*"
+    -
+      Effect: Allow
+      Action:
+        - s3:Get*
+        - s3:Put*
+        - s3:Copy*
+      Resource:
+        - Fn::Join: [':', ['arn', 'aws', 's3', '', '', '${self:provider.environment.S3_BUCKET}/*']]
+    -
+      Effect: Allow
+      Action:
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+      Resource:
+        - Fn::Join: [':', ['arn', 'aws', 'dynamodb', Ref: AWS::Region, Ref: AWS::AccountId, 'table/${self:provider.environment.DYNAMODBTABLE}']]
+
+functions:
+  ExtractDataFromImage:
+    handler: ./extract-data-from-image.lambda_handler
+    description: Triggered by S3, read skewed and distorted text to capture data.
+    memorySize: 128
+    timeout: 60
+    events:
+      - s3:
+          bucket: ${env:S3_BUCKET}
+          event: s3:ObjectCreated:Put
+
+resources:
+  Resources:
+    ItemTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          -
+            AttributeName: ItemId
+            AttributeType: S
+        KeySchema:
+          -
+            AttributeName: ItemId
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 10
+          WriteCapacityUnits: 10
+        TableName: ${self:provider.environment.DYNAMODB_TABLE}
